@@ -241,3 +241,162 @@ INSERT [dbo].[VienPhi] ([IDVP], [NDONGVP], [TTOANVP], [IDHoSo]) VALUES (N'HDVP3 
 INSERT [dbo].[VienPhi] ([IDVP], [NDONGVP], [TTOANVP], [IDHoSo]) VALUES (N'HDVP4    ', CAST(N'2024-09-29T00:00:00.000' AS DateTime), CAST(500.000 AS Decimal(10, 3)), N'HS4      ')
 INSERT [dbo].[VienPhi] ([IDVP], [NDONGVP], [TTOANVP], [IDHoSo]) VALUES (N'HDVP5    ', CAST(N'2024-09-30T00:00:00.000' AS DateTime), CAST(300.000 AS Decimal(10, 3)), N'HS5      ')
 GO
+--1 In ra hồ sơ bệnh án của bệnh nhân 
+SELECT * FROM HoSoBenhAn;
+
+--2 Danh sách bác sĩ ở Quận 9 
+SELECT * FROM BacSi WHERE DiaChiBS = N'Quận 9';
+
+--3 Danh sách tất cả bệnh nhân mắc bệnh “Tăng Huyết Áp” Bao gồm: mã hồ sơ, họ và tên bệnh nhân, triệu chứng, tên bệnh 
+SELECT hs.IDHoSo, hs.HoVaTenBN, ct.TrieuChung, b.TenBenh
+FROM HoSoBenhAn hs
+JOIN PhieuKhamBenh p  ON hs.IDHoSo = p.IDHoSo
+JOIN ChiTietPhieuKhamBenh ct ON ct.IDPKB = p.IDPKB
+JOIN BENH b ON b.IDBENH = ct.IDBENH
+WHERE TenBenh = N'Tăng Huyết Áp';
+
+--4 Chọn tổng số tiền VienPhi mỗi bệnh nhân thanh toán: họ tên bệnh nhân, tổng tiền viện phí 
+SELECT HoVaTenBN, SUM(TTOANVP) AS TotalVienPhi
+FROM HoSoBenhAn h 
+JOIN VienPhi v  ON h.IDHoSo = v.IDHoSo
+GROUP BY HoVaTenBN;
+
+--5 Tìm số lần xét nghiệm  tiến hành cho mỗi bệnh nhân: họ tên bệnh nhân, số lần xét nghiệm 
+SELECT HoVaTenBN, COUNT(IDXN) AS NumberOfTests
+FROM HoSoBenhAn h 
+JOIN PhieuXetNghiem p ON h.IDHoSo = p.IDHoSo
+GROUP BY HoVaTenBN;
+
+--6.Truy xuất tất cả BacSi đã khám bệnh nhân “Suy Tim”:
+SELECT DISTINCT HoVaTenBS
+FROM BacSi b
+JOIN ChiTietPhieuKhamBenh c ON b.IDBacSi = c.IDBacSi
+JOIN BENH b1 ON c.IDBENH = b1.IDBENH
+WHERE b1.TenBenh = N'Suy Tim'; 
+
+--7 In ra số tiền viện phí trung bình của mỗi khoa: 
+SELECT TenKhoa, AVG(vp.TTOANVP) AS AvgVienPhi
+FROM KHOA k
+JOIN BacSi b ON k.IDKHoa = b.IDKHoa
+JOIN ChiTietPhieuKhamBenh ct ON ct.IDBacSi = b.IDBacSi
+JOIN PhieuKhamBenh p ON ct.IDPKB = p.IDPKB
+JOIN HoSoBenhAn hs ON hs.IDHoSo = p.IDHoSo
+JOIN VienPhi vp ON vp.IDHoSo =hs.IDHoSo
+GROUP BY TenKhoa;
+
+--8 In ra tổng số tiền  của cả viện phí và lệ phí của các bệnh nhân:
+SELECT hs.IDHoSo, hs.HoVaTenBN, vp.TTOANVP + lp.SoTienLePhi AS TotalPhi 
+FROM HoSoBenhAn hs 
+JOIN LePhi lp ON hs.IDHoSo = lp.IDHoSo
+JOIN VienPhi vp ON hs.IDHoSo = vp.IDHoSo
+
+--9 In ra bệnh nhân phải trả nhiều tiền nhất 
+SELECT hs.IDHoSo, hs.HoVaTenBN, vp.TTOANVP + lp.SoTienLePhi AS TotalPhi 
+FROM HoSoBenhAn hs 
+JOIN LePhi lp ON hs.IDHoSo = lp.IDHoSo
+JOIN VienPhi vp ON hs.IDHoSo = vp.IDHoSo
+WHERE  vp.TTOANVP + lp.SoTienLePhi  = (SELECT MAX (TotalPhi ) FROM (SELECT hs.IDHoSo, hs.HoVaTenBN, vp.TTOANVP + lp.SoTienLePhi AS TotalPhi 
+FROM HoSoBenhAn hs 
+JOIN LePhi lp ON hs.IDHoSo = lp.IDHoSo
+JOIN VienPhi vp ON hs.IDHoSo = vp.IDHoSo) AS MaxPhi)
+
+--10 In ra bệnh nhân phải trả its tiền nhất 
+SELECT hs.IDHoSo, hs.HoVaTenBN, vp.TTOANVP + lp.SoTienLePhi AS TotalPhi 
+FROM HoSoBenhAn hs 
+JOIN LePhi lp ON hs.IDHoSo = lp.IDHoSo
+JOIN VienPhi vp ON hs.IDHoSo = vp.IDHoSo
+WHERE  vp.TTOANVP + lp.SoTienLePhi  = (SELECT MIN (TotalPhi ) FROM (SELECT hs.IDHoSo, hs.HoVaTenBN, vp.TTOANVP + lp.SoTienLePhi AS TotalPhi 
+FROM HoSoBenhAn hs 
+JOIN LePhi lp ON hs.IDHoSo = lp.IDHoSo
+JOIN VienPhi vp ON hs.IDHoSo = vp.IDHoSo) AS MinPhi)
+
+
+--1 Tạo trigger ngăn chặn việc chèn HoSoBenhAn với NgayLapHoSo trong tương lai:
+GO
+CREATE TRIGGER trg_PreventFutureNgayLapHoSo
+ON HoSoBenhAn
+FOR INSERT
+AS
+BEGIN
+    IF EXISTS (SELECT * FROM inserted WHERE NgayLapHoSo > GETDATE())
+    BEGIN
+        RAISERROR ('NgayLapHoSo cannot be in the future.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+END;
+GO
+INSERT INTO HoSoBenhAn (IDHoSo, HoVaTenBN, DCHI, NSINH, PHONE, NgayLapHoSo, NgayHetHanHoSo)
+VALUES ('HS123', N'Nguyen Van A', N'123 Street', '1990-01-01', '0123456789', GETDATE() + 1, NULL);
+
+--2 Viết câu trigger cập nhật NgayHetHanHoSo tự động 3 ngày sau NgàyLapHoSo:
+GO
+CREATE TRIGGER trg_UpdateNgayHetHanHoSo
+ON HoSoBenhAn
+AFTER INSERT
+AS
+BEGIN
+    UPDATE HoSoBenhAn
+    SET NgayHetHanHoSo = DATEADD(DAY, 3, NgayLapHoSo)
+    WHERE IDHoSo IN (SELECT IDHoSo FROM inserted);
+END;
+GO
+
+INSERT INTO HoSoBenhAn (IDHoSo, HoVaTenBN, DCHI, NSINH, PHONE, NgayLapHoSo, NgayHetHanHoSo)
+VALUES ('HS125', N'Le Thi C', N'789 Boulevard', '1988-03-03', '0123987654', '2024-10-28', NULL);
+
+SELECT IDHoSo, NgayLapHoSo, NgayHetHanHoSo
+FROM HoSoBenhAn
+WHERE IDHoSo = 'HS125';
+
+--3 Viết hàm tính tổng viện phí của bệnh nhân cho trước 
+GO
+CREATE FUNCTION fn_TotalVienPhi (@IDHoSo CHAR(9))
+RETURNS DECIMAL(10, 3)
+AS
+BEGIN
+    DECLARE @Total DECIMAL(10, 3);
+    SELECT @Total = SUM(TTOANVP) FROM VienPhi WHERE IDHoSo = @IDHoSo;
+    RETURN ISNULL(@Total, 0);
+END;
+GO 
+SELECT dbo.fn_TotalVienPhi('HS1') AS TotalVienPhi;
+
+--4 Viết câu procedure để thêm bác sĩ mới 
+GO
+CREATE PROC sp_InsertBacSi
+    @IDBacSi CHAR(9),
+    @HoVaTenBS NVARCHAR(50),
+    @DiaChiBS NVARCHAR(50),
+    @PHONEBS VARCHAR(20),
+    @IDKHoa CHAR(9)
+AS
+BEGIN
+    INSERT INTO BacSi (IDBacSi, HoVaTenBS, DiaChiBS, PHONEBS, IDKHoa)
+    VALUES (@IDBacSi, @HoVaTenBS, @DiaChiBS, @PHONEBS, @IDKHoa);
+END;
+GO
+
+EXEC sp_InsertBacSi
+    @IDBacSi = 'BS001',
+    @HoVaTenBS = N'Nguyen Van D',
+    @DiaChiBS = N'123 Main St',
+    @PHONEBS = '0123456789',
+    @IDKHoa = 'KH001';
+SELECT * FROM BacSi WHERE IDBacSi = 'BS001';
+
+--5 Tạo store procedure in ra sô tiền lệ phí và viện phí của bệnh nhân được nhập vào 
+GO
+CREATE PROCEDURE sp_GetPatientFinancialDetails
+    @IDHoSo CHAR(9)
+AS
+BEGIN
+    SELECT HoVaTenBN, DCHI, NSINH, PHONE, SoTienLePhi, TTOANVP
+    FROM HoSoBenhAn
+    LEFT JOIN LePhi ON HoSoBenhAn.IDHoSo = LePhi.IDHoSo
+    LEFT JOIN VienPhi ON HoSoBenhAn.IDHoSo = VienPhi.IDHoSo
+    WHERE HoSoBenhAn.IDHoSo = @IDHoSo;
+END;
+GO
+EXEC sp_GetPatientFinancialDetails @IDHoSo = 'HS1';
+
+
